@@ -24,6 +24,7 @@ struct libinput* mouse_events_init(void)
 		    libinput_unref(lib_input);
             lib_input = NULL;
         }
+        udev_unref(udev);
     }
     return lib_input;
 }

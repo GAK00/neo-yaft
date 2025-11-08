@@ -17,7 +17,21 @@ void insert_blank(struct terminal_t *term, struct parm_t *parm)
 
 void curs_up(struct terminal_t *term, struct parm_t *parm)
 {
-	int num = (parm->argc == 0) ? 1 : dec2num(parm->argv[0]);
+	for(int i = 0; i < parm->argc; i++)
+	{
+		uint8_t chr = (uint8_t)' ';
+		addch(term, chr);
+		addch(term, chr);
+		addch(term, chr);
+
+		const char * param = parm->argv[i];
+		while(*param != '\0')
+		{
+			addch(term, *param);
+			param++;
+		}
+	}
+	int num = (parm->argc <=0) ? 1 : dec2num(parm->argv[0]);
 	if(parm->argc == 2)
 	{
 		if(dec2num(parm->argv[1]) == CTRL_MOD)
@@ -33,7 +47,7 @@ void curs_up(struct terminal_t *term, struct parm_t *parm)
 
 void curs_down(struct terminal_t *term, struct parm_t *parm)
 {
-	int num = (parm->argc == 0) ? 1 : dec2num(parm->argv[0]);
+	int num = (parm->argc <= 0) ? 1 : dec2num(parm->argv[0]);
 	if(parm->argc == 2)
 	{
 		if(dec2num(parm->argv[1]) == CTRL_MOD)
