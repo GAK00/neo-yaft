@@ -1,5 +1,7 @@
+static const char replacment_char = REPLACEMENT_CHAR;
+
 /* See LICENSE for licence details. */
-void (*ctrl_func[CTRL_CHARS])(struct terminal_t *term) = {
+void (*ctrl_func_out[CTRL_CHARS])(struct terminal_t *term) = {
 	[BS]  = bs,
 	[HT]  = tab,
 	[LF]  = nl,
@@ -9,7 +11,9 @@ void (*ctrl_func[CTRL_CHARS])(struct terminal_t *term) = {
 	[ESC] = enter_esc,
 };
 
-void (*esc_func[ESC_CHARS])(struct terminal_t *term) = {
+bool (*ctrl_func_in[CTRL_CHARS])(struct terminal_t *term) = {0};
+
+void (*esc_func_out[ESC_CHARS])(struct terminal_t *term) = {
 	['7'] = save_state,
 	['8'] = restore_state,
 	['D'] = nl,
@@ -23,7 +27,9 @@ void (*esc_func[ESC_CHARS])(struct terminal_t *term) = {
 	['c'] = ris,
 };
 
-void (*csi_func[ESC_CHARS])(struct terminal_t *term, struct parm_t *) = {
+bool (*esc_func_in[ESC_CHARS])(struct terminal_t *term) = {0};
+
+void (*csi_func_out[ESC_CHARS])(struct terminal_t *term, struct parm_t *) = {
 	['@'] = insert_blank,
 	['A'] = curs_up,
 	['B'] = curs_down,
@@ -57,8 +63,13 @@ void (*csi_func[ESC_CHARS])(struct terminal_t *term, struct parm_t *) = {
 	['`'] = curs_col,
 };
 
+bool (*csi_func_in[ESC_CHARS])(struct terminal_t *term, struct parm_t *) = {
+	['A'] = curs_up_in,
+	['B'] = curs_down_in,
+};
+
 /* ctr char/esc sequence/charset function */
-void control_character(struct terminal_t *term, uint8_t ch)
+void control_character(struct terminal_t *term, uint8_t ch, bool input)
 {
 	static const char *ctrl_char[] = {
 		"NUL", "SOH", "STX", "ETX", "EOT", "ENQ", "ACK", "BEL",
@@ -71,18 +82,26 @@ void control_character(struct terminal_t *term, uint8_t ch)
 
 	logging(DEBUG, "ctl: %s\n", ctrl_char[ch]);
 
-	if (ctrl_func[ch])
-		ctrl_func[ch](term);
+	if (!input && ctrl_func_out[ch])
+		ctrl_func_out[ch](term);
+	else if(input && (!ctrl_func_in[ch] || !ctrl_func_in[ch](term)))
+		ewrite(term->fd, &ch, 1);
 }
 
-void esc_sequence(struct terminal_t *term, uint8_t ch)
+void esc_sequence(struct terminal_t *term, uint8_t ch, bool input)
 {
 	*term->esc.bp = '\0';
 
 	logging(DEBUG, "esc: ESC %s\n", term->esc.buf);
-
-	if (strlen(term->esc.buf) == 1 && esc_func[ch])
-		esc_func[ch](term);
+	if (input)
+	{
+		if(strlen(term->esc.buf) == 1 && (!esc_func_in[ch] || !esc_func_in[ch](term)))
+			ewrite(term->fd, term->esc.buf, strlen(term->esc.buf));
+	}
+	else if (strlen(term->esc.buf) == 1 && esc_func_out[ch])
+	{
+		esc_func_out[ch](term);
+	}
 
 	/* not reset if csi/osc/dcs seqence */
 	if (ch == '[' || ch == ']' || ch == 'P')
@@ -91,7 +110,7 @@ void esc_sequence(struct terminal_t *term, uint8_t ch)
 	reset_esc(term);
 }
 
-void csi_sequence(struct terminal_t *term, uint8_t ch)
+void csi_sequence(struct terminal_t *term, uint8_t ch, bool input)
 {
 	struct parm_t parm;
 
@@ -101,9 +120,10 @@ void csi_sequence(struct terminal_t *term, uint8_t ch)
 
 	reset_parm(&parm);
 	parse_arg(term->esc.buf + 1, &parm, ';', isdigit); /* skip '[' */
-
-	if (csi_func[ch])
-		csi_func[ch](term, &parm);
+	if (input && (!csi_func_in[ch] || !csi_func_in[ch](term, &parm)))
+		ewrite(term->fd, term->esc.buf, strlen(term->esc.buf));
+	else if (csi_func_out[ch])
+		csi_func_out[ch](term, &parm);
 
 	reset_esc(term);
 }
@@ -125,11 +145,17 @@ void omit_string_terminator(char *bp, uint8_t ch)
 		*(bp - 1) = '\0';
 }
 
-void osc_sequence(struct terminal_t *term, uint8_t ch)
+void osc_sequence(struct terminal_t *term, uint8_t ch, bool input)
 {
 	int osc_mode;
 	struct parm_t parm;
 
+	if(input)
+	{
+		ewrite(term->fd, term->esc.buf, strlen(term->esc.buf));
+		reset_esc(term);
+		return;
+	}
 	omit_string_terminator(term->esc.bp, ch);
 
 	logging(DEBUG, "osc: OSC %s\n", term->esc.buf);
@@ -153,9 +179,16 @@ void osc_sequence(struct terminal_t *term, uint8_t ch)
 	reset_esc(term);
 }
 
-void dcs_sequence(struct terminal_t *term, uint8_t ch)
+void dcs_sequence(struct terminal_t *term, uint8_t ch, bool input)
 {
 	char *cp;
+
+	if(input)
+	{
+		ewrite(term->fd, term->esc.buf, strlen(term->esc.buf));
+		reset_esc(term);
+		return;
+	}
 
 	omit_string_terminator(term->esc.bp, ch);
 
@@ -184,7 +217,7 @@ void dcs_sequence(struct terminal_t *term, uint8_t ch)
 	reset_esc(term);
 }
 
-void utf8_charset(struct terminal_t *term, uint8_t ch)
+void utf8_charset(struct terminal_t *term, uint8_t ch, bool input)
 {
 	if (0x80 <= ch && ch <= 0xBF) {
 		/* check illegal UTF-8 sequence
@@ -232,7 +265,10 @@ void utf8_charset(struct terminal_t *term, uint8_t ch)
 		term->charset.count = 0;
 		return;
 	} else { /* 0xFE - 0xFF: not used in UTF-8 */
-		addch(term, REPLACEMENT_CHAR);
+		if(!input)
+			addch(term, REPLACEMENT_CHAR);
+		else
+			ewrite(term->fd, &replacment_char, 1);
 		reset_charset(term);
 		return;
 	}
@@ -249,15 +285,24 @@ void utf8_charset(struct terminal_t *term, uint8_t ch)
 			|| (0xFDD0 <= term->charset.code && term->charset.code <= 0xFDEF)
 			|| ((term->charset.code & 0xFFFF) == 0xFFFE || (term->charset.code & 0xFFFF) == 0xFFFF)
 			|| (term->charset.code > 0x10FFFF))
-			addch(term, REPLACEMENT_CHAR);
+			{
+				if(!input)
+					addch(term, REPLACEMENT_CHAR);
+				else
+					ewrite(term->fd, &replacment_char, 1);
+			}
 		else
-			addch(term, term->charset.code);
-
+		{
+			if(!input)
+				addch(term, term->charset.code);
+			else
+				ewrite(term->fd, &(term->charset.code), 1);
+		}
 		reset_charset(term);
 	}
 }
 
-void parse(struct terminal_t *term, uint8_t *buf, int size)
+void parse(struct terminal_t *term, uint8_t *buf, int size, bool input)
 {
 	/*
 		CTRL CHARS      : 0x00 ~ 0x1F
@@ -272,28 +317,46 @@ void parse(struct terminal_t *term, uint8_t *buf, int size)
 		if (term->esc.state == STATE_RESET) {
 			/* interrupted by illegal byte */
 			if (term->charset.following_byte > 0 && (ch < 0x80 || ch > 0xBF)) {
-				addch(term, REPLACEMENT_CHAR);
+				if(!input)
+					addch(term, REPLACEMENT_CHAR);
+				else
+					ewrite(term->fd, &replacment_char, 1);
 				reset_charset(term);
 			}
 
 			if (ch <= 0x1F)
-				control_character(term, ch);
+				control_character(term, ch, input);
 			else if (ch <= 0x7F)
-				addch(term, ch);
+			{
+				if(!input)
+					addch(term, ch);
+				else
+					ewrite(term->fd, &ch, 1);
+			}
 			else
-				utf8_charset(term, ch);
+				utf8_charset(term, ch, input);
 		} else if (term->esc.state == STATE_ESC) {
 			if (push_esc(term, ch))
-				esc_sequence(term, ch);
+				esc_sequence(term, ch, input);
 		} else if (term->esc.state == STATE_CSI) {
 			if (push_esc(term, ch))
-				csi_sequence(term, ch);
+				csi_sequence(term, ch, input);
 		} else if (term->esc.state == STATE_OSC) {
 			if (push_esc(term, ch))
-				osc_sequence(term, ch);
+				osc_sequence(term, ch, input);
 		} else if (term->esc.state == STATE_DCS) {
 			if (push_esc(term, ch))
-				dcs_sequence(term, ch);
+				dcs_sequence(term, ch, input);
 		}
 	}
+}
+
+void parse_in(struct terminal_t *term, uint8_t *buf, int size)
+{
+	parse(term, buf, size, true);
+}
+
+void parse_out(struct terminal_t *term, uint8_t *buf, int size)
+{
+	parse(term, buf, size, false);
 }

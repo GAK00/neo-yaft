@@ -235,13 +235,13 @@ int main(int argc, char *const argv[])
 
 		if (FD_ISSET(STDIN_FILENO, &fds)) {
 			if ((size = read(STDIN_FILENO, buf, BUFSIZE)) > 0)
-				ewrite(term.fd, buf, size);
+				parse_in(&term, buf, size);
 		}
 		if (FD_ISSET(term.fd, &fds)) {
 			if ((size = read(term.fd, buf, BUFSIZE)) > 0) {
 				if (VERBOSE)
 					ewrite(STDOUT_FILENO, buf, size);
-				parse(&term, buf, size);
+				parse_out(&term, buf, size);
 				if (LAZY_DRAW && size == BUFSIZE)
 					continue; /* maybe more data arrives soon */
 				refresh(&fb, &term);
