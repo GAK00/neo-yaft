@@ -17,22 +17,34 @@ void insert_blank(struct terminal_t *term, struct parm_t *parm)
 
 void curs_up(struct terminal_t *term, struct parm_t *parm)
 {
-	int num = sum(parm);
-
-	if (num <= 0)
-		num = 1;
-
-	move_cursor(term, -num, 0);
+	int num = (parm->argc == 0) ? 1 : dec2num(parm->argv[0]);
+	if(parm->argc == 2)
+	{
+		if(dec2num(parm->argv[1]) == CTRL_MOD)
+		{
+			scroll(term, term->scroll.top, term->scroll.bottom, -1 * num);
+		}	
+	}
+	else
+	{
+		move_cursor(term, -num, 0);
+	}
 }
 
 void curs_down(struct terminal_t *term, struct parm_t *parm)
 {
-	int num = sum(parm);
-
-	if (num <= 0)
-		num = 1;
-
-	move_cursor(term, num, 0);
+	int num = (parm->argc == 0) ? 1 : dec2num(parm->argv[0]);
+	if(parm->argc == 2)
+	{
+		if(dec2num(parm->argv[1]) == CTRL_MOD)
+		{
+			scroll(term, term->scroll.top, term->scroll.bottom, num);
+		}	
+	}
+	else
+	{
+		move_cursor(term, num, 0);
+	}
 }
 
 void curs_forward(struct terminal_t *term, struct parm_t *parm)

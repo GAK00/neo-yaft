@@ -1,5 +1,31 @@
 /* See LICENSE for licence details. */
 /* yaft.c: include main function */
+#define _GNU_SOURCE
+#include <errno.h>
+#include <libinput.h>
+#include <libudev.h>
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <locale.h>
+#include <limits.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <sys/select.h>
+#include <sys/wait.h>
+#include <termios.h>
+#include <unistd.h>
+#include <wchar.h>
+
+#include "glyph.h"
+#include "color.h"
 #include "yaft.h"
 #include "conf.h"
 #include "util.h"
@@ -9,6 +35,8 @@
 #include "ctrlseq/csi.h"
 #include "ctrlseq/osc.h"
 #include "ctrlseq/dcs.h"
+#include "mouse/events.h"
+#include "mouse/mouse.h"
 #include "parse.h"
 
 void sig_handler(int signo)
@@ -219,6 +247,7 @@ int main(int argc, char *const argv[])
 				refresh(&fb, &term);
 			}
 		}
+		mouse_do_work(&term);
 	}
 
 	/* normal exit */

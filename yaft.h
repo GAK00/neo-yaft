@@ -1,28 +1,4 @@
 /* See LICENSE for licence details. */
-#define _XOPEN_SOURCE 600
-#include <ctype.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <locale.h>
-#include <limits.h>
-#include <signal.h>
-#include <stdarg.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
-#include <sys/select.h>
-#include <sys/wait.h>
-#include <termios.h>
-#include <unistd.h>
-#include <wchar.h>
-
-#include "glyph.h"
-#include "color.h"
-
 enum char_code {
 	/* 7 bit */
 	BEL = 0x07, BS  = 0x08, HT  = 0x09,
@@ -34,6 +10,7 @@ enum char_code {
 };
 
 enum misc {
+	CTRL_MOD           = 5,                /* csi ctrl key mod */
 	BUFSIZE            = 1024,             /* read, esc, various buffer size */
 	BITS_PER_BYTE      = 8,                /* bits per byte */
 	BYTES_PER_PIXEL    = sizeof(uint32_t), /* pixel size of sixel pixmap data */
