@@ -243,7 +243,7 @@ int main(int argc, char *const argv[])
 		if (FD_ISSET(STDIN_FILENO, &fds)) {
 			if ((size = read(STDIN_FILENO, buf, BUFSIZE)) > 0) {
 				parse(&term, buf, size, INPUT);
-				check_refresh = check_refresh || !(LAZY_DRAW && size == BUFSIZE);
+				check_refresh = true;
 			}
 		}
 		if (FD_ISSET(term.fd, &fds)) {
@@ -251,7 +251,7 @@ int main(int argc, char *const argv[])
 				if (VERBOSE)
 					ewrite(STDOUT_FILENO, buf, size);
 				parse(&term, buf, size, OUTPUT);
-				check_refresh = check_refresh || !(LAZY_DRAW && size == BUFSIZE);
+				check_refresh = true;
 			}
 		}
 		
