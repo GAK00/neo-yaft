@@ -1,7 +1,7 @@
 static const char replacment_char = REPLACEMENT_CHAR;
 
 /* See LICENSE for licence details. */
-void (*ctrl_func_out[CTRL_CHARS])(struct terminal_t *term) = {
+bool (*ctrl_func[CTRL_CHARS])(struct terminal_t *term, enum io_direction io_dir) = {
 	[BS]  = bs,
 	[HT]  = tab,
 	[LF]  = nl,
@@ -11,9 +11,7 @@ void (*ctrl_func_out[CTRL_CHARS])(struct terminal_t *term) = {
 	[ESC] = enter_esc,
 };
 
-bool (*ctrl_func_in[CTRL_CHARS])(struct terminal_t *term) = {0};
-
-void (*esc_func_out[ESC_CHARS])(struct terminal_t *term) = {
+bool (*esc_func[ESC_CHARS])(struct terminal_t *term, enum io_direction io_dir) = {
 	['7'] = save_state,
 	['8'] = restore_state,
 	['D'] = nl,
@@ -27,9 +25,7 @@ void (*esc_func_out[ESC_CHARS])(struct terminal_t *term) = {
 	['c'] = ris,
 };
 
-bool (*esc_func_in[ESC_CHARS])(struct terminal_t *term) = {0};
-
-void (*csi_func_out[ESC_CHARS])(struct terminal_t *term, struct parm_t *) = {
+bool (*csi_func[ESC_CHARS])(struct terminal_t *term, struct parm_t * parm, enum io_direction io_dir) = {
 	['@'] = insert_blank,
 	['A'] = curs_up,
 	['B'] = curs_down,
@@ -63,13 +59,8 @@ void (*csi_func_out[ESC_CHARS])(struct terminal_t *term, struct parm_t *) = {
 	['`'] = curs_col,
 };
 
-bool (*csi_func_in[ESC_CHARS])(struct terminal_t *term, struct parm_t *) = {
-	['A'] = curs_up_in,
-	['B'] = curs_down_in,
-};
-
 /* ctr char/esc sequence/charset function */
-void control_character(struct terminal_t *term, uint8_t ch, bool input)
+void control_character(struct terminal_t *term, uint8_t ch, enum io_direction io_dir)
 {
 	static const char *ctrl_char[] = {
 		"NUL", "SOH", "STX", "ETX", "EOT", "ENQ", "ACK", "BEL",
@@ -77,55 +68,50 @@ void control_character(struct terminal_t *term, uint8_t ch, bool input)
 		"DLE", "DC1", "DC2", "DC3", "DC4", "NAK", "SYN", "ETB",
 		"CAN", "EM ", "SUB", "ESC", "FS ", "GS ", "RS ", "US ",
 	};
-
-	*term->esc.bp = '\0';
+	struct esc_t* esc = io_dir == INPUT ? &term->esc_in : &term->esc_out;
+	*esc->bp = '\0';
 
 	logging(DEBUG, "ctl: %s\n", ctrl_char[ch]);
-
-	if (!input && ctrl_func_out[ch])
-		ctrl_func_out[ch](term);
-	else if(input && (!ctrl_func_in[ch] || !ctrl_func_in[ch](term)))
-		ewrite(term->fd, &ch, 1);
+	if(ctrl_func[ch])
+		ctrl_func[ch](term, io_dir);
+	if(esc->state == STATE_RESET && io_dir == INPUT)
+		addch(term, ch, io_dir);
 }
 
-void esc_sequence(struct terminal_t *term, uint8_t ch, bool input)
+void esc_sequence(struct terminal_t *term, uint8_t ch,  enum io_direction io_dir)
 {
-	*term->esc.bp = '\0';
+	struct esc_t* esc = io_dir == INPUT ? &term->esc_in : &term->esc_out;
+	*esc->bp = '\0';
 
-	logging(DEBUG, "esc: ESC %s\n", term->esc.buf);
-	if (input)
-	{
-		if(strlen(term->esc.buf) == 1 && (!esc_func_in[ch] || !esc_func_in[ch](term)))
-			ewrite(term->fd, term->esc.buf, strlen(term->esc.buf));
-	}
-	else if (strlen(term->esc.buf) == 1 && esc_func_out[ch])
-	{
-		esc_func_out[ch](term);
-	}
+	logging(DEBUG, "esc: ESC %s\n", esc->buf);
+	bool consumed = false;
+	if (strlen(esc->buf) == 1 && esc_func[ch])
+		consumed = esc_func[ch](term, io_dir);
 
 	/* not reset if csi/osc/dcs seqence */
-	if (ch == '[' || ch == ']' || ch == 'P')
-		return;
-
-	reset_esc(term);
+	if (ch != '[' && ch != ']' && ch != 'P')
+		reset_esc(term, io_dir, consumed);
 }
 
-void csi_sequence(struct terminal_t *term, uint8_t ch, bool input)
+void csi_sequence(struct terminal_t *term, uint8_t ch, enum io_direction io_dir)
 {
+	struct esc_t* esc = io_dir == INPUT ? &term->esc_in : &term->esc_out;
 	struct parm_t parm;
+	
+	*(esc->bp) = '\0';
+	if(io_dir == INPUT)
+		logging(DEBUG, "input csi: CSI %s\n", esc->buf + 1);
+	else
+		logging(DEBUG, "output csi: CSI %s\n", esc->buf + 1);
 
-	*(term->esc.bp - 1) = '\0'; /* omit final character */
-
-	logging(DEBUG, "csi: CSI %s\n", term->esc.buf + 1);
-
+	*(esc->bp - 1) = '\0';
 	reset_parm(&parm);
-	parse_arg(term->esc.buf + 1, &parm, ';', isdigit); /* skip '[' */
-	if (input && (!csi_func_in[ch] || !csi_func_in[ch](term, &parm)))
-		ewrite(term->fd, term->esc.buf, strlen(term->esc.buf));
-	else if (csi_func_out[ch])
-		csi_func_out[ch](term, &parm);
-
-	reset_esc(term);
+	parse_arg(esc->buf + 1, &parm, ';', isdigit); /* skip '[' */
+	bool consumed = false;
+	if(csi_func[ch])
+		consumed = csi_func[ch](term, &parm, io_dir);
+	*(esc->bp - 1) = ch;
+	reset_esc(term, io_dir, consumed);
 }
 
 int is_osc_parm(int c)
@@ -145,23 +131,24 @@ void omit_string_terminator(char *bp, uint8_t ch)
 		*(bp - 1) = '\0';
 }
 
-void osc_sequence(struct terminal_t *term, uint8_t ch, bool input)
+void osc_sequence(struct terminal_t *term, uint8_t ch, enum io_direction io_dir)
 {
 	int osc_mode;
 	struct parm_t parm;
 
-	if(input)
+	if(io_dir == INPUT)
 	{
-		ewrite(term->fd, term->esc.buf, strlen(term->esc.buf));
-		reset_esc(term);
+		reset_esc(term, INPUT, false);
 		return;
 	}
-	omit_string_terminator(term->esc.bp, ch);
+	
+	struct esc_t* esc = io_dir == INPUT ? &term->esc_in : &term->esc_out;
+	omit_string_terminator(esc->bp, ch);
 
-	logging(DEBUG, "osc: OSC %s\n", term->esc.buf);
+	logging(DEBUG, "osc: OSC %s\n", esc->buf);
 
 	reset_parm(&parm);
-	parse_arg(term->esc.buf + 1, &parm, ';', is_osc_parm); /* skip ']' */
+	parse_arg(esc->buf + 1, &parm, ';', is_osc_parm); /* skip ']' */
 
 	if (parm.argc > 0) {
 		osc_mode = dec2num(parm.argv[0]);
@@ -176,48 +163,42 @@ void osc_sequence(struct terminal_t *term, uint8_t ch, bool input)
 		if (osc_mode == 8900)
 			glyph_width_report(term, &parm);
 	}
-	reset_esc(term);
+	reset_esc(term, OUTPUT, false);
 }
 
-void dcs_sequence(struct terminal_t *term, uint8_t ch, bool input)
+void dcs_sequence(struct terminal_t *term, uint8_t ch, enum io_direction io_dir)
 {
-	char *cp;
-
-	if(input)
+	if(io_dir == INPUT)
 	{
-		ewrite(term->fd, term->esc.buf, strlen(term->esc.buf));
-		reset_esc(term);
+		reset_esc(term, io_dir, false);
 		return;
 	}
 
-	omit_string_terminator(term->esc.bp, ch);
+	struct esc_t* esc = io_dir == INPUT ? &term->esc_in : &term->esc_out;
+	omit_string_terminator(esc->bp, ch);
 
-	logging(DEBUG, "dcs: DCS %s\n", term->esc.buf);
+	logging(DEBUG, "dcs: DCS %s\n", esc->buf + 1);
 
 	/* check DCS header */
-	cp = term->esc.buf + 1; /* skip P */
-	while (cp < term->esc.bp) {
-		if (*cp == '{' || *cp == 'q')                      /* DECDLD or sixel */
-			break;
-		else if (*cp == ';' || ('0' <= *cp && *cp <= '9')) /* valid DCS header */
-			;
-		else                                               /* invalid sequence */
-			cp = term->esc.bp;
+	char * cp = esc->buf + 1; /* skip P */
+	while (cp < esc->bp && (*cp != '{' && *cp != 'q')) {
+		if (*cp != ';' && ('0' > *cp || *cp > '9')) /* invalid sequence */                                         
+			cp = esc->bp;
 		cp++;
 	}
 
-	if (cp != term->esc.bp) { /* header only or couldn't find final char */
+	if (cp < esc->bp) { /* header only or couldn't find final char */
 		/* parse DCS header */
 		if (*cp == 'q')
-			sixel_parse_header(term, term->esc.buf + 1);
+			sixel_parse_header(term, esc->buf + 1);
 		else if (*cp == '{')
-			decdld_parse_header(term, term->esc.buf + 1);
+			decdld_parse_header(term, esc->buf + 1);
 	}
 
-	reset_esc(term);
+	reset_esc(term, io_dir, false);
 }
 
-void utf8_charset(struct terminal_t *term, uint8_t ch, bool input)
+void utf8_charset(struct terminal_t *term, uint8_t ch, enum io_direction io_dir)
 {
 	if (0x80 <= ch && ch <= 0xBF) {
 		/* check illegal UTF-8 sequence
@@ -265,10 +246,7 @@ void utf8_charset(struct terminal_t *term, uint8_t ch, bool input)
 		term->charset.count = 0;
 		return;
 	} else { /* 0xFE - 0xFF: not used in UTF-8 */
-		if(!input)
-			addch(term, REPLACEMENT_CHAR);
-		else
-			ewrite(term->fd, &replacment_char, 1);
+		addch(term, REPLACEMENT_CHAR, io_dir);
 		reset_charset(term);
 		return;
 	}
@@ -280,29 +258,18 @@ void utf8_charset(struct terminal_t *term, uint8_t ch, bool input)
 			0xnFFFE  ~ 0xnFFFF: noncharacter (n: 0x00 ~ 0x10)
 			0x110000 ~        : invalid (unicode U+0000 ~ U+10FFFF)
 		*/
-		if (!term->charset.is_valid
-			|| (0xD800 <= term->charset.code && term->charset.code <= 0xDFFF)
+		if (!term->charset.is_valid || (0xD800 <= term->charset.code && term->charset.code <= 0xDFFF)
 			|| (0xFDD0 <= term->charset.code && term->charset.code <= 0xFDEF)
 			|| ((term->charset.code & 0xFFFF) == 0xFFFE || (term->charset.code & 0xFFFF) == 0xFFFF)
 			|| (term->charset.code > 0x10FFFF))
-			{
-				if(!input)
-					addch(term, REPLACEMENT_CHAR);
-				else
-					ewrite(term->fd, &replacment_char, 1);
-			}
+				addch(term, REPLACEMENT_CHAR, io_dir);
 		else
-		{
-			if(!input)
-				addch(term, term->charset.code);
-			else
-				ewrite(term->fd, &(term->charset.code), 1);
-		}
+			addch(term, term->charset.code, io_dir);
 		reset_charset(term);
 	}
 }
 
-void parse(struct terminal_t *term, uint8_t *buf, int size, bool input)
+void parse(struct terminal_t *term, uint8_t *buf, int size, enum io_direction io_dir)
 {
 	/*
 		CTRL CHARS      : 0x00 ~ 0x1F
@@ -310,53 +277,32 @@ void parse(struct terminal_t *term, uint8_t *buf, int size, bool input)
 		CTRL CHARS(DEL) : 0x7F
 		UTF-8           : 0x80 ~ 0xFF
 	*/
+	struct esc_t* esc = io_dir == INPUT ? &term->esc_in : &term->esc_out;
 	uint8_t ch;
-
 	for (int i = 0; i < size; i++) {
 		ch = buf[i];
-		if (term->esc.state == STATE_RESET) {
+		if (esc->state == STATE_RESET) {
 			/* interrupted by illegal byte */
 			if (term->charset.following_byte > 0 && (ch < 0x80 || ch > 0xBF)) {
-				if(!input)
-					addch(term, REPLACEMENT_CHAR);
-				else
-					ewrite(term->fd, &replacment_char, 1);
+				addch(term, REPLACEMENT_CHAR, io_dir);
 				reset_charset(term);
 			}
 
 			if (ch <= 0x1F)
-				control_character(term, ch, input);
+				control_character(term, ch, io_dir);
 			else if (ch <= 0x7F)
-			{
-				if(!input)
-					addch(term, ch);
-				else
-					ewrite(term->fd, &ch, 1);
-			}
+				addch(term, ch, io_dir);
 			else
-				utf8_charset(term, ch, input);
-		} else if (term->esc.state == STATE_ESC) {
-			if (push_esc(term, ch))
-				esc_sequence(term, ch, input);
-		} else if (term->esc.state == STATE_CSI) {
-			if (push_esc(term, ch))
-				csi_sequence(term, ch, input);
-		} else if (term->esc.state == STATE_OSC) {
-			if (push_esc(term, ch))
-				osc_sequence(term, ch, input);
-		} else if (term->esc.state == STATE_DCS) {
-			if (push_esc(term, ch))
-				dcs_sequence(term, ch, input);
-		}
+				utf8_charset(term, ch, io_dir);
+		} else if(push_esc(term, ch, io_dir)) {
+			if(esc->state == STATE_ESC)
+				esc_sequence(term, ch, io_dir);
+			else if(esc->state == STATE_CSI)
+				csi_sequence(term, ch, io_dir);
+			else if(esc->state == STATE_OSC)
+				osc_sequence(term, ch, io_dir);
+			else if(esc->state == STATE_DCS)
+				dcs_sequence(term, ch, io_dir);
+		} 
 	}
-}
-
-void parse_in(struct terminal_t *term, uint8_t *buf, int size)
-{
-	parse(term, buf, size, true);
-}
-
-void parse_out(struct terminal_t *term, uint8_t *buf, int size)
-{
-	parse(term, buf, size, false);
 }

@@ -2,8 +2,7 @@
 /* yaft.c: include main function */
 #define _GNU_SOURCE
 #include <errno.h>
-#include <libinput.h>
-#include <libudev.h>
+#include <libevdev/libevdev.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -21,8 +20,10 @@
 #include <sys/select.h>
 #include <sys/wait.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 #include <wchar.h>
+
 
 #include "glyph.h"
 #include "color.h"
@@ -223,31 +224,37 @@ int main(int argc, char *const argv[])
 
 	/* main loop */
 	while (child_alive) {
+		bool check_refresh = false;
 		if (need_redraw) {
 			need_redraw = false;
 			cmap_update(fb.fd, fb.cmap); /* after VT switching, need to restore cmap (in 8bpp mode) */
 			redraw(&term);
-			refresh(&fb, &term);
+			check_refresh = true;
 		}
 
 		if (check_fds(&fds, &tv, STDIN_FILENO, term.fd) == -1)
 			continue;
 
 		if (FD_ISSET(STDIN_FILENO, &fds)) {
-			if ((size = read(STDIN_FILENO, buf, BUFSIZE)) > 0)
-				parse_in(&term, buf, size);
+			if ((size = read(STDIN_FILENO, buf, BUFSIZE)) > 0) {
+				parse(&term, buf, size, INPUT);
+				check_refresh = check_refresh || !(LAZY_DRAW && size == BUFSIZE);
+			}
 		}
 		if (FD_ISSET(term.fd, &fds)) {
 			if ((size = read(term.fd, buf, BUFSIZE)) > 0) {
 				if (VERBOSE)
 					ewrite(STDOUT_FILENO, buf, size);
-				parse_out(&term, buf, size);
-				if (LAZY_DRAW && size == BUFSIZE)
-					continue; /* maybe more data arrives soon */
-				refresh(&fb, &term);
+				parse(&term, buf, size, OUTPUT);
+				check_refresh = check_refresh || !(LAZY_DRAW && size == BUFSIZE);
 			}
 		}
-		mouse_do_work(&term);
+		
+		if(mouse_dowork(&term))
+			check_refresh = true;
+
+		if(check_refresh)
+			refresh(&fb, &term);
 	}
 
 	/* normal exit */

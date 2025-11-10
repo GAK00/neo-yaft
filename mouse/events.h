@@ -1,53 +1,44 @@
-int if_open(const char* path, int flags, void* ctx)
-{
-    (void)(ctx);
-    int fd = open(path, flags);
-    return fd < 0 ? -errno : fd;
-}
+#define EVT_DEV_FILE_PATTERN "/dev/input/event%d"
 
-void if_close(int fd, void* ctx)
-{
-    (void)(ctx);
-    close(fd);
-}
+#define MAX_FILE_PATH_LEN (256)
 
-struct libinput* mouse_events_init(void)
+void attempt_open_evt(struct evdev_mon_t * evt, int event_num)
 {
-    static const struct libinput_interface input_if = {.open_restricted = if_open, .close_restricted = if_close};
-	struct udev *udev = udev_new();
-    struct libinput* lib_input = NULL;
-    if(udev)
+    char file_path[MAX_FILE_PATH_LEN];
+    snprintf(file_path,MAX_FILE_PATH_LEN, EVT_DEV_FILE_PATTERN, event_num);
+    evt->fd = open(file_path, O_RDONLY | O_NONBLOCK);
+    if(evt->fd < 0)
     {
-        struct libinput* lib_input = libinput_udev_create_context(&input_if, NULL, udev);
-        if(libinput_udev_assign_seat(lib_input, "seat0"))
+        return;
+    }
+    if(libevdev_new_from_fd(evt->fd, &evt->dev) < 0)
+    {
+        return;
+    }
+    evt->opened = true;
+}
+
+bool mouse_event_process(struct evdev_mon_t * evt, struct terminal_t * term)
+{
+    int res = 0;
+    struct input_event ev;
+    bool ret = false;
+    while((res = libevdev_next_event(evt->dev, LIBEVDEV_READ_FLAG_NORMAL, &ev)) == 0)
+    {
+        if(ev.type != EV_REL)
+            continue;
+        if(ev.code == REL_WHEEL)
         {
-		    libinput_unref(lib_input);
-            lib_input = NULL;
+            ret = true;
+            scroll_view(term, ev.value * -2);
         }
-        udev_unref(udev);
-    }
-    return lib_input;
-}
-
-struct libinput_event * mouse_events_get_event(struct libinput* lib_input)
-{
-    struct libinput_event * evt = libinput_get_event(lib_input);
-    enum libinput_event_type evt_typ = libinput_event_get_type(evt);
-    if(evt_typ == LIBINPUT_EVENT_NONE)
-    {    
-        libinput_dispatch(lib_input);
-        evt = libinput_get_event(lib_input);
-        evt_typ = libinput_event_get_type(evt);
     }
 
-    if(evt_typ == LIBINPUT_EVENT_DEVICE_ADDED || evt_typ == LIBINPUT_EVENT_DEVICE_REMOVED)
+    if(res < 0 && res != -EAGAIN)
     {
-        struct libinput_device* device = libinput_event_get_device(evt);
-        libinput_device_config_tap_set_enabled(device, LIBINPUT_CONFIG_TAP_ENABLED);
-        libinput_device_config_tap_set_drag_enabled(device, LIBINPUT_CONFIG_DRAG_ENABLED);
-        libinput_device_config_dwt_set_enabled(device, LIBINPUT_CONFIG_DWT_DISABLED);
-        libinput_device_config_click_set_method(device, LIBINPUT_CONFIG_CLICK_METHOD_NONE);
+        libevdev_free(evt->dev);
+        close(evt->fd);
+        evt->opened = false;
     }
-
-    return evt_typ != LIBINPUT_EVENT_NONE ? evt : NULL;
+    return ret;
 }

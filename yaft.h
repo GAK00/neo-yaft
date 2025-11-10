@@ -9,6 +9,12 @@ enum char_code {
 	BACKSLASH = 0x5C,
 };
 
+enum io_direction
+{
+	INPUT, /* data came from input */
+	OUTPUT /* data is moving to output */
+};
+
 enum misc {
 	CTRL_MOD           = 5,                /* csi ctrl key mod */
 	BUFSIZE            = 1024,             /* read, esc, various buffer size */
@@ -126,7 +132,7 @@ struct sixel_canvas_t {
 struct terminal_t {
 	int fd;                                  /* master of pseudo terminal */
 	int width, height;                       /* terminal size (pixel) */
-	int cols, lines;                         /* terminal size (cell) */
+	int cols, lines, disp_lines, disp_start; /* terminal size (cell) */
 	struct cell_t **cells;                   /* pointer to each cell: cells[y * lines + x] */
 	struct margin_t scroll;                  /* scroll margin */
 	struct point_t cursor;                   /* cursor pos (x, y) */
@@ -138,7 +144,8 @@ struct terminal_t {
 	struct color_pair_t color_pair;          /* color (fg, bg) */
 	enum char_attr attribute;                /* bold, underscore, etc... */
 	struct charset_t charset;                /* store UTF-8 byte stream */
-	struct esc_t esc;                        /* store escape sequence */
+	struct esc_t esc_out;                    /* store escape sequence fir iytoyt stream */
+	struct esc_t esc_in;                     /* store escape sequence for input stream*/
 	uint32_t virtual_palette[COLORS];        /* virtual color palette: always 32bpp */
 	bool palette_modified;                   /* true if palette changed by OSC 4/104 */
 	const struct glyph_t *glyph[UCS2_CHARS]; /* array of pointer to glyphs[] */
@@ -149,6 +156,12 @@ struct terminal_t {
 struct parm_t { /* for parse_arg() */
 	int argc;
 	char *argv[MAX_ARGS];
+};
+
+struct evdev_mon_t{
+	bool opened;          /* Tracks if device is opened*/
+	int fd;               /* File descriptor of event device*/
+	struct libevdev *dev; /* libevdev device */
 };
 
 volatile sig_atomic_t vt_active   = true;  /* SIGUSR1: vt is active or not */

@@ -146,6 +146,22 @@ void move_cursor(struct terminal_t *term, int y_offset, int x_offset)
 		scroll(term, top, bottom, y_offset);
 	}
 	term->cursor.y = y;
+	term->disp_start = (term->cursor.y - term->disp_lines) + 1;
+	if(term->disp_start < 0)
+	{
+		term->disp_start = 0;
+	}
+}
+
+void scroll_view(struct terminal_t *term, int lines)
+{
+	int start_max = (term->cursor.y - term->disp_lines) + 1;
+	term->disp_start = term->disp_start + lines;
+	
+	if(term->disp_start > start_max)
+		term->disp_start = start_max;
+	if(term->disp_start < 0)
+		term->disp_start = 0;
 }
 
 /* absolute movement: never scroll */
@@ -189,10 +205,29 @@ const struct glyph_t *drcs_glyph(struct terminal_t *term, uint32_t code)
 		return term->glyph[SUBSTITUTE_HALF];
 }
 
-void addch(struct terminal_t *term, uint32_t code)
+void addch(struct terminal_t *term, uint32_t code, enum io_direction io_dir)
 {
 	int width;
 	const struct glyph_t *glyphp;
+
+	if(io_dir == INPUT)
+	{
+		if(code <= 0xFFU)
+		{
+			uint8_t data = (uint8_t) code;
+			ewrite(term->fd, &data, sizeof(data));
+		}
+		else if(code <= 0XFFFFU)
+		{
+			uint16_t data = (uint16_t) code;
+			ewrite(term->fd, &data, sizeof(data));
+		}
+		else
+		{
+			ewrite(term->fd, &code, sizeof(code));
+		}
+		return;
+	}
 
 	logging(DEBUG, "addch: U+%.4X\n", code);
 
@@ -219,29 +254,42 @@ void addch(struct terminal_t *term, uint32_t code)
 	move_cursor(term, 0, set_cell(term, term->cursor.y, term->cursor.x, glyphp));
 }
 
-void reset_esc(struct terminal_t *term)
+void reset_esc(struct terminal_t *term, enum io_direction io_dir, bool consumed)
 {
 	logging(DEBUG, "*esc reset*\n");
+	struct esc_t * esc = (io_dir == INPUT) ? &term->esc_in : &term->esc_out;
+	size_t size = (esc->bp) ? (size_t)(esc->bp - esc->buf) : 0;
 
-	term->esc.bp    = term->esc.buf;
-	term->esc.state = STATE_RESET;
+	// Clearing input and data is not consumed write it to subproc
+	if(term->fd >= 0 && io_dir == INPUT && !consumed && size > 0)
+	{
+		char buf[size + 1];
+		buf[0] = ESC;
+		memcpy(&(buf[1]), esc->buf, size + 1);
+		ewrite(term->fd, buf, size + 1);
+	}
+	
+	esc->bp = esc->buf;
+	esc->state = STATE_RESET;
 }
 
-bool push_esc(struct terminal_t *term, uint8_t ch)
+bool push_esc(struct terminal_t *term, uint8_t ch, enum io_direction io_dir)
 {
-	long offset;
+	struct esc_t * esc = (io_dir == INPUT) ? &term->esc_in : &term->esc_out;
+	long offset = esc->bp - esc->buf;
 
-	if ((term->esc.bp - term->esc.buf) >= term->esc.size) { /* buffer limit */
-		logging(DEBUG, "escape sequence length >= %d, term.esc.buf reallocated\n", term->esc.size);
-		offset = term->esc.bp - term->esc.buf;
-		term->esc.buf = erealloc(term->esc.buf, term->esc.size * 2);
-		term->esc.bp  = term->esc.buf + offset;
-		term->esc.size *= 2;
+	if (offset >= esc->size) { /* buffer limit */
+		logging(DEBUG, "escape sequence length >= %d, term.esc.buf reallocated\n", esc->size);
+		esc->buf = erealloc(esc->buf, esc->size * 2);
+		esc->bp  = esc->buf + offset;
+		esc->size *= 2;
 	}
 
 	/* ref: http://www.vt100.net/docs/vt102-ug/appendixd.html */
-	*term->esc.bp++ = ch;
-	if (term->esc.state == STATE_ESC) {
+	*esc->bp++ = ch;
+	offset++;
+
+	if (esc->state == STATE_ESC) {
 		/* format:
 			ESC  I.......I F
 				 ' '  '/'  '0'  '~'
@@ -251,7 +299,7 @@ bool push_esc(struct terminal_t *term, uint8_t ch)
 			return true;
 		else if (SPACE <= ch && ch <= '/') /* intermediate char */
 			return false;
-	} else if (term->esc.state == STATE_CSI) {
+	} else if (esc->state == STATE_CSI) {
 		/* format:
 			CSI       P.......P I.......I F
 			ESC  '['  '0'  '?'  ' '  '/'  '@'  '~'
@@ -270,16 +318,14 @@ bool push_esc(struct terminal_t *term, uint8_t ch)
 			ESC  'P'          BEL  or ESC  '\'
 			0x1B 0x50 unknown 0x07 or 0x1B 0x5C
 		*/
-		if (ch == BEL || (ch == BACKSLASH
-			&& (term->esc.bp - term->esc.buf) >= 2 && *(term->esc.bp - 2) == ESC))
+		if (ch == BEL || (ch == BACKSLASH && offset >= 2 && *(esc->bp - 2) == ESC))
 			return true;
-		else if ((ch == ESC || ch == CR || ch == LF || ch == BS || ch == HT)
-			|| (SPACE <= ch && ch <= '~'))
+		else if ((ch == ESC || ch == CR || ch == LF || ch == BS || ch == HT)|| (SPACE <= ch && ch <= '~'))
 			return false;
 	}
 
 	/* invalid sequence */
-	reset_esc(term);
+	reset_esc(term, io_dir, false);
 	return false;
 }
 
@@ -320,7 +366,8 @@ void reset(struct terminal_t *term)
 		term->line_dirty[line] = true;
 	}
 
-	reset_esc(term);
+	reset_esc(term, INPUT, false);
+	reset_esc(term, OUTPUT, false);
 	reset_charset(term);
 }
 
@@ -334,7 +381,8 @@ void term_die(struct terminal_t *term)
 {
 	free(term->line_dirty);
 	free(term->tabstop);
-	free(term->esc.buf);
+	free(term->esc_in.buf);
+	free(term->esc_out.buf);
 	free(term->sixel.pixmap);
 
 	for (int i = 0; i < term->lines; i++)
@@ -350,16 +398,20 @@ bool term_init(struct terminal_t *term, int width, int height)
 	term->height = height;
 
 	term->cols  = term->width / CELL_WIDTH;
-	term->lines = term->height / CELL_HEIGHT;
+	term->disp_lines = term->height / CELL_HEIGHT;
+	term->lines = term->disp_lines + HIST_LINES;
+	term->disp_start = 0;
 
-	term->esc.size = ESCSEQ_SIZE;
+	term->esc_in.size = ESCSEQ_SIZE;
+	term->esc_out.size = ESCSEQ_SIZE;
 
 	logging(DEBUG, "terminal cols:%d lines:%d\n", term->cols, term->lines);
 
 	/* allocate memory */
 	term->line_dirty   = (bool *) ecalloc(term->lines, sizeof(bool));
 	term->tabstop      = (bool *) ecalloc(term->cols, sizeof(bool));
-	term->esc.buf      = (char *) ecalloc(1, term->esc.size);
+	term->esc_out.buf  = (char *) ecalloc(1, term->esc_out.size);
+	term->esc_in.buf  = (char *) ecalloc(1, term->esc_in.size);
 	term->sixel.pixmap = (uint8_t *) ecalloc(width * height, BYTES_PER_PIXEL);
 
 	term->cells        = (struct cell_t **) ecalloc(term->lines, sizeof(struct cell_t *));
@@ -367,7 +419,7 @@ bool term_init(struct terminal_t *term, int width, int height)
 		term->cells[i] = (struct cell_t *) ecalloc(term->cols, sizeof(struct cell_t));
 
 	if (!term->line_dirty || !term->tabstop || !term->cells
-		|| !term->esc.buf || !term->sixel.pixmap) {
+		|| !term->esc_in.buf || !term->esc_out.buf || !term->sixel.pixmap) {
 		term_die(term);
 		return false;
 	}
