@@ -1,9 +1,11 @@
 /* See LICENSE for licence details. */
 /* function for csi sequence */
-void insert_blank(struct terminal_t *term, struct parm_t *parm)
+bool insert_blank(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir == INPUT)
+		return false;
 	int i, num = sum(parm);
-
+	
 	if (num <= 0)
 		num = 1;
 
@@ -13,80 +15,120 @@ void insert_blank(struct terminal_t *term, struct parm_t *parm)
 		else
 			erase_cell(term, term->cursor.y, i);
 	}
+	return false;
 }
 
-void curs_up(struct terminal_t *term, struct parm_t *parm)
+bool curs_up(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
-	int num = sum(parm);
-
-	if (num <= 0)
-		num = 1;
-
-	move_cursor(term, -num, 0);
+	int num = (parm->argc <=0) ? 1 : dec2num(parm->argv[0]);
+	if(parm->argc == 2 && io_dir == INPUT)
+	{
+		if(dec2num(parm->argv[1]) == CTRL_MOD)
+		{
+			scroll_view(term, -1 * num);
+			return true;
+		}	
+	}
+	else if(io_dir == OUTPUT)
+	{
+		move_cursor(term, -num, 0);
+	}
+	return false;
 }
 
-void curs_down(struct terminal_t *term, struct parm_t *parm)
+bool curs_down(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
-	int num = sum(parm);
-
-	if (num <= 0)
-		num = 1;
-
-	move_cursor(term, num, 0);
+	int num = (parm->argc <=0) ? 1 : dec2num(parm->argv[0]);
+	if(parm->argc == 2 && io_dir == INPUT)
+	{
+		if(dec2num(parm->argv[1]) == CTRL_MOD)
+		{
+			scroll_view(term,  num);
+			return true;
+		}	
+	}
+	else if(io_dir == OUTPUT)
+	{
+		move_cursor(term, num, 0);
+	}
+	return false;
 }
 
-void curs_forward(struct terminal_t *term, struct parm_t *parm)
+bool curs_forward(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	int num = sum(parm);
 
 	if (num <= 0)
 		num = 1;
 
 	move_cursor(term, 0, num);
+	return false;
 }
 
-void curs_back(struct terminal_t *term, struct parm_t *parm)
+bool curs_back(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	int num = sum(parm);
 
 	if (num <= 0)
 		num = 1;
 
 	move_cursor(term, 0, -num);
+	return false;
 }
 
-void curs_nl(struct terminal_t *term, struct parm_t *parm)
+bool curs_nl(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	int num = sum(parm);
 
 	if (num <= 0)
 		num = 1;
 
 	move_cursor(term, num, 0);
-	cr(term);
+	cr(term, io_dir);
+	return false;
 }
 
-void curs_pl(struct terminal_t *term, struct parm_t *parm)
+bool curs_pl(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+	
 	int num = sum(parm);
 
 	if (num <= 0)
 		num = 1;
 
 	move_cursor(term, -num, 0);
-	cr(term);
+	cr(term, io_dir);
+	return false;
 }
 
-void curs_col(struct terminal_t *term, struct parm_t *parm)
+bool curs_col(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	int num;
 
 	num = (parm->argc <= 0) ? 0: dec2num(parm->argv[parm->argc - 1]) - 1;
 	set_cursor(term, term->cursor.y, num);
+	return false;
 }
 
-void curs_pos(struct terminal_t *term, struct parm_t *parm)
+bool curs_pos(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	int line, col;
 
 	if (parm->argc <= 0) {
@@ -95,7 +137,7 @@ void curs_pos(struct terminal_t *term, struct parm_t *parm)
 		line = dec2num(parm->argv[0]) - 1;
 		col  = dec2num(parm->argv[1]) - 1;
 	} else {
-		return;
+		return false;
 	}
 
 	if (line < 0)
@@ -104,24 +146,32 @@ void curs_pos(struct terminal_t *term, struct parm_t *parm)
 		col = 0;
 
 	set_cursor(term, line, col);
+	return false;
 }
 
-void curs_line(struct terminal_t *term, struct parm_t *parm)
+bool curs_line(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	int num;
 
 	num = (parm->argc <= 0) ? 0: dec2num(parm->argv[parm->argc - 1]) - 1;
 	set_cursor(term, num, term->cursor.x);
+	return false;
 }
 
-void erase_display(struct terminal_t *term, struct parm_t *parm)
+bool erase_display(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	int i, j, mode;
 
 	mode = (parm->argc <= 0) ? 0: dec2num(parm->argv[parm->argc - 1]);
 
 	if (mode < 0 || 2 < mode)
-		return;
+		return false;
 
 	if (mode == 0) {
 		for (i = term->cursor.y; i < term->lines; i++)
@@ -138,16 +188,20 @@ void erase_display(struct terminal_t *term, struct parm_t *parm)
 			for (j = 0; j < term->cols; j++)
 				erase_cell(term, i, j);
 	}
+	return false;
 }
 
-void erase_line(struct terminal_t *term, struct parm_t *parm)
+bool erase_line(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	int i, mode;
 
 	mode = (parm->argc <= 0) ? 0: dec2num(parm->argv[parm->argc - 1]);
 
 	if (mode < 0 || 2 < mode)
-		return;
+		return false;
 
 	if (mode == 0) {
 		for (i = term->cursor.x; i < term->cols; i++)
@@ -159,42 +213,54 @@ void erase_line(struct terminal_t *term, struct parm_t *parm)
 		for (i = 0; i < term->cols; i++)
 			erase_cell(term, term->cursor.y, i);
 	}
+	return false;
 }
 
-void insert_line(struct terminal_t *term, struct parm_t *parm)
+bool insert_line(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	int num = sum(parm);
 
 	if (term->mode & MODE_ORIGIN) {
 		if (term->cursor.y < term->scroll.top
 			|| term->cursor.y > term->scroll.bottom)
-			return;
+			return false;
 	}
 
 	if (num <= 0)
 		num = 1;
 
 	scroll(term, term->cursor.y, term->scroll.bottom, -num);
+	return false;
 }
 
-void delete_line(struct terminal_t *term, struct parm_t *parm)
+bool delete_line(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	int num = sum(parm);
 
 	if (term->mode & MODE_ORIGIN) {
 		if (term->cursor.y < term->scroll.top
 			|| term->cursor.y > term->scroll.bottom)
-			return;
+			return false;
 	}
 
 	if (num <= 0)
 		num = 1;
 
 	scroll(term, term->cursor.y, term->scroll.bottom, num);
+	return false;
 }
 
-void delete_char(struct terminal_t *term, struct parm_t *parm)
+bool delete_char(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	int i, num = sum(parm);
 
 	if (num <= 0)
@@ -206,10 +272,14 @@ void delete_char(struct terminal_t *term, struct parm_t *parm)
 		else
 			erase_cell(term, term->cursor.y, i);
 	}
+	return false;
 }
 
-void erase_char(struct terminal_t *term, struct parm_t *parm)
+bool erase_char(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	int i, num = sum(parm);
 
 	if (num <= 0)
@@ -219,6 +289,7 @@ void erase_char(struct terminal_t *term, struct parm_t *parm)
 
 	for (i = term->cursor.x; i < term->cursor.x + num; i++)
 		erase_cell(term, term->cursor.y, i);
+	return false;
 }
 
 uint8_t rgb2index(uint8_t r, uint8_t g, uint8_t b)
@@ -294,8 +365,11 @@ uint8_t rgb2index(uint8_t r, uint8_t g, uint8_t b)
 	return index;
 }
 
-void set_attr(struct terminal_t *term, struct parm_t *parm)
+bool set_attr(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	/* SGR: Set Graphic Rendition
 	 * 	ESC [ Pm m
 	 * 	Pm:
@@ -323,7 +397,7 @@ void set_attr(struct terminal_t *term, struct parm_t *parm)
 		term->attribute     = ATTR_RESET;
 		term->color_pair.fg = DEFAULT_FG;
 		term->color_pair.bg = DEFAULT_BG;
-		return;
+		return false ;
 	}
 
 	for (i = 0; i < parm->argc; i++) {
@@ -374,10 +448,14 @@ void set_attr(struct terminal_t *term, struct parm_t *parm)
 			term->color_pair.bg = (num - 100) + BRIGHT_INC;
 		}
 	}
+	return false;
 }
 
-void status_report(struct terminal_t *term, struct parm_t *parm)
+bool status_report(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	int i, num;
 	char buf[BUFSIZE];
 
@@ -392,22 +470,31 @@ void status_report(struct terminal_t *term, struct parm_t *parm)
 			ewrite(term->fd, "\033[?13n", 6);
 		}
 	}
+	return false;
 }
 
-void device_attribute(struct terminal_t *term, struct parm_t *parm)
+bool device_attribute(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	/* TODO: refer VT525 DA */
 	(void) parm;
 	ewrite(term->fd, "\033[?6c", 5); /* "I am a VT102" */
+	return false;
 }
 
-void set_mode(struct terminal_t *term, struct parm_t *parm)
+bool set_mode(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	int i, mode;
+	struct esc_t * esc = io_dir == OUTPUT ? &term->esc_out : &term->esc_in;
 
 	for (i = 0; i < parm->argc; i++) {
 		mode = dec2num(parm->argv[i]);
-		if (*(term->esc.buf + 1) != '?')
+		if (*(esc->buf + 1) != '?')
 			continue; /* not supported */
 
 		if (mode == 6) { /* private mode */
@@ -421,16 +508,20 @@ void set_mode(struct terminal_t *term, struct parm_t *parm)
 			term->mode |= MODE_VWBS;
 		}
 	}
-
+	return false;
 }
 
-void reset_mode(struct terminal_t *term, struct parm_t *parm)
+bool reset_mode(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	int i, mode;
+	struct esc_t * esc = io_dir == OUTPUT ? &term->esc_out : &term->esc_in;
 
 	for (i = 0; i < parm->argc; i++) {
 		mode = dec2num(parm->argv[i]);
-		if (*(term->esc.buf + 1) != '?')
+		if (*(esc->buf + 1) != '?')
 			continue; /* not supported */
 
 		if (mode == 6) { /* private mode */
@@ -445,11 +536,14 @@ void reset_mode(struct terminal_t *term, struct parm_t *parm)
 			term->mode &= ~MODE_VWBS;
 		}
 	}
-
+	return false;
 }
 
-void set_margin(struct terminal_t *term, struct parm_t *parm)
+bool set_margin(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	int top, bottom;
 
 	if (parm->argc <= 0) {        /* CSI r */
@@ -459,7 +553,7 @@ void set_margin(struct terminal_t *term, struct parm_t *parm)
 		top    = (parm->argv[0] == NULL) ? 0: dec2num(parm->argv[0]) - 1;
 		bottom = (parm->argv[1] == NULL) ? term->lines - 1: dec2num(parm->argv[1]) - 1;
 	} else {
-		return;
+		return false;
 	}
 
 	if (top < 0 || top >= term->lines)
@@ -468,16 +562,20 @@ void set_margin(struct terminal_t *term, struct parm_t *parm)
 		bottom = term->lines - 1;
 
 	if (top >= bottom)
-		return;
+		return false;
 
 	term->scroll.top = top;
 	term->scroll.bottom = bottom;
 
 	set_cursor(term, 0, 0); /* move cursor to home */
+	return false;
 }
 
-void clear_tabstop(struct terminal_t *term, struct parm_t *parm)
+bool clear_tabstop(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	int i, j, num;
 
 	if (parm->argc <= 0) {
@@ -490,8 +588,9 @@ void clear_tabstop(struct terminal_t *term, struct parm_t *parm)
 			} else if (num == 3) {
 				for (j = 0; j < term->cols; j++)
 					term->tabstop[j] = false;
-				return;
+				return false;
 			}
 		}
 	}
+	return false;
 }

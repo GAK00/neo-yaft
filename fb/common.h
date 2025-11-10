@@ -382,7 +382,7 @@ static inline void draw_sixel(struct framebuffer_t *fb, int line, int col, uint8
 	}
 }
 
-static inline void draw_line(struct framebuffer_t *fb, struct terminal_t *term, int line)
+static inline void draw_line(struct framebuffer_t *fb, struct terminal_t *term, int line, int disp_line)
 {
 	int pos, size, bdf_padding, glyph_width, margin_right;
 	int col, w, h;
@@ -398,7 +398,7 @@ static inline void draw_line(struct framebuffer_t *fb, struct terminal_t *term, 
 
 		/* draw sixel pixmap */
 		if (cellp->has_pixmap) {
-			draw_sixel(fb, line, col, cellp->pixmap);
+			draw_sixel(fb, disp_line, col, cellp->pixmap);
 			continue;
 		}
 
@@ -427,7 +427,7 @@ static inline void draw_line(struct framebuffer_t *fb, struct terminal_t *term, 
 
 			for (w = 0; w < CELL_WIDTH; w++) {
 				pos = (term->width - 1 - margin_right - w) * fb->info.bytes_per_pixel
-					+ (line * CELL_HEIGHT + h) * fb->info.line_length;
+					+ (disp_line * CELL_HEIGHT + h) * fb->info.line_length;
 
 				/* set color palette */
 				if (cellp->glyphp->bitmap[h] & (0x01 << (bdf_padding + w)))
@@ -444,7 +444,7 @@ static inline void draw_line(struct framebuffer_t *fb, struct terminal_t *term, 
 	}
 
 	/* actual display update (bit blit) */
-	pos = (line * CELL_HEIGHT) * fb->info.line_length;
+	pos = (disp_line * CELL_HEIGHT) * fb->info.line_length;
 	size = CELL_HEIGHT * fb->info.line_length;
 	memcpy(fb->fp + pos, fb->buf + pos, size);
 
@@ -469,9 +469,12 @@ void refresh(struct framebuffer_t *fb, struct terminal_t *term)
 	if (term->mode & MODE_CURSOR)
 		term->line_dirty[term->cursor.y] = true;
 
-	for (int line = 0; line < term->lines; line++) {
-		if (term->line_dirty[line]) {
-			draw_line(fb, term, line);
+	int i = 0;
+	for (int line = term->disp_start; line < term->lines; line++, i++) {
+		if (i >= term->disp_lines)
+		{
+			break;
 		}
+		draw_line(fb, term, line, i);
 	}
 }

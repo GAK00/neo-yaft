@@ -2,7 +2,7 @@ CC ?= gcc
 #CC ?= clang
 
 CFLAGS  ?= -std=c99 -pedantic -Wall -Wextra -O3 -s -pipe
-LDFLAGS ?=
+LDFLAGS ?= $(shell pkg-config --cflags --libs libevdev)
 
 XCFLAGS  ?= -std=c99 -pedantic -Wall -Wextra -I/usr/include/X11/ -O3 -s -pipe
 XLDFLAGS ?= -lX11

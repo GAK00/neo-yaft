@@ -374,7 +374,7 @@ void sixel_copy2cell(struct terminal_t *term, struct sixel_canvas_t *sc)
 		move_cursor(term, 1, 0);
 		//set_cursor(term, term->cursor.y + 1, term->cursor.x);
 	}
-	cr(term);
+	cr(term, OUTPUT);
 }
 
 void sixel_parse_header(struct terminal_t *term, char *start_buf)

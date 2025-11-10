@@ -22,6 +22,9 @@ enum {
 	REPLACEMENT_CHAR = 0x003F, /* used for malformed UTF-8 sequence   : U+003F (QUESTION MARK) */
 };
 
+#define MAX_EVT_DEVS (20)
+#define HIST_LINES (2000)
+
 /* TERM value */
 const char *term_name = "yaft-256color";
 

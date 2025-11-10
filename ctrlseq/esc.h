@@ -1,53 +1,72 @@
 /* See LICENSE for licence details. */
 /* function for control character */
-void bs(struct terminal_t *term)
+bool bs(struct terminal_t *term, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	if (term->mode & MODE_VWBS
 		&& term->cursor.x - 1 >= 0
 		&& term->cells[term->cursor.y][term->cursor.x - 1].width == NEXT_TO_WIDE)
 		move_cursor(term, 0, -2);
 	else
 		move_cursor(term, 0, -1);
+	return false;
 }
 
-void tab(struct terminal_t *term)
+bool tab(struct terminal_t *term, enum io_direction io_dir)
 {
-	int i;
+	if(io_dir != OUTPUT)
+		return false;
 
-	for (i = term->cursor.x + 1; i < term->cols; i++) {
+	for (int i = term->cursor.x + 1; i < term->cols; i++) {
 		if (term->tabstop[i]) {
 			set_cursor(term, term->cursor.y, i);
-			return;
+			return false;
 		}
 	}
 	set_cursor(term, term->cursor.y, term->cols - 1);
+	return false;
 }
 
-void nl(struct terminal_t *term)
+bool nl(struct terminal_t *term, enum io_direction io_dir)
 {
-	move_cursor(term, 1, 0);
+	if(io_dir == OUTPUT)
+		move_cursor(term, 1, 0);
+	return false;
 }
 
-void cr(struct terminal_t *term)
+bool cr(struct terminal_t *term, enum io_direction io_dir)
 {
-	set_cursor(term, term->cursor.y, 0);
+	if(io_dir == OUTPUT)
+		set_cursor(term, term->cursor.y, 0);
+	return false;
 }
 
-void enter_esc(struct terminal_t *term)
+bool enter_esc(struct terminal_t *term, enum io_direction io_dir)
 {
-	term->esc.state = STATE_ESC;
+	struct esc_t * esc = io_dir == OUTPUT ? &term->esc_out : &term->esc_in;
+	esc->state = STATE_ESC;
+	return false;
 }
 
 /* function for escape sequence */
-void save_state(struct terminal_t *term)
+bool save_state(struct terminal_t *term, enum io_direction io_dir)
 {
-	term->state.mode = term->mode & MODE_ORIGIN;
-	term->state.cursor = term->cursor;
-	term->state.attribute = term->attribute;
+	if(io_dir == OUTPUT)
+	{
+		term->state.mode = term->mode & MODE_ORIGIN;
+		term->state.cursor = term->cursor;
+		term->state.attribute = term->attribute;
+	}
+	return false;
 }
 
-void restore_state(struct terminal_t *term)
+bool restore_state(struct terminal_t *term, enum io_direction io_dir)
 {
+	if(io_dir != OUTPUT)
+		return false;
+
 	/* restore state */
 	if (term->state.mode & MODE_ORIGIN)
 		term->mode |= MODE_ORIGIN;
@@ -55,45 +74,64 @@ void restore_state(struct terminal_t *term)
 		term->mode &= ~MODE_ORIGIN;
 	term->cursor    = term->state.cursor;
 	term->attribute = term->state.attribute;
+	return false;
 }
 
-void crnl(struct terminal_t *term)
+bool crnl(struct terminal_t *term, enum io_direction io_dir)
 {
-	cr(term);
-	nl(term);
+	if(io_dir != OUTPUT)
+		return false;
+
+	cr(term, io_dir);
+	nl(term, io_dir);
+	return false;
 }
 
-void set_tabstop(struct terminal_t *term)
+bool set_tabstop(struct terminal_t *term, enum io_direction io_dir)
 {
-	term->tabstop[term->cursor.x] = true;
+	if(io_dir == OUTPUT)
+		term->tabstop[term->cursor.x] = true;
+	return false;
 }
 
-void reverse_nl(struct terminal_t *term)
+bool reverse_nl(struct terminal_t *term, enum io_direction io_dir)
 {
-	move_cursor(term, -1, 0);
+	if(io_dir == OUTPUT)
+		move_cursor(term, -1, 0);
+	return false;
 }
 
-void identify(struct terminal_t *term)
+bool identify(struct terminal_t *term, enum io_direction io_dir)
 {
-	ewrite(term->fd, "\033[?6c", 5); /* "I am a VT102" */
+	if(io_dir == OUTPUT)
+		ewrite(term->fd, "\033[?6c", 5); /* "I am a VT102" */
+	return false;
 }
 
-void enter_csi(struct terminal_t *term)
+bool enter_csi(struct terminal_t *term, enum io_direction io_dir)
 {
-	term->esc.state = STATE_CSI;
+	struct esc_t * esc = io_dir == OUTPUT ? &term->esc_out : &term->esc_in;
+	esc->state = STATE_CSI;
+	return false;
 }
 
-void enter_osc(struct terminal_t *term)
+bool enter_osc(struct terminal_t *term, enum io_direction io_dir)
 {
-	term->esc.state = STATE_OSC;
+	struct esc_t * esc = io_dir == OUTPUT ? &term->esc_out : &term->esc_in;
+	esc->state = STATE_OSC;
+	return false;
+}	
+
+bool enter_dcs(struct terminal_t *term, enum io_direction io_dir)
+{
+	struct esc_t * esc = io_dir == OUTPUT ? &term->esc_out : &term->esc_in;
+	esc->state = STATE_DCS;
+	return false;
 }
 
-void enter_dcs(struct terminal_t *term)
+bool ris(struct terminal_t *term, enum io_direction io_dir)
 {
-	term->esc.state = STATE_DCS;
-}
-
-void ris(struct terminal_t *term)
-{
-	reset(term);
+	if(io_dir == OUTPUT)
+		reset(term);
+	return false;
 }

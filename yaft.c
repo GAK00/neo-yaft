@@ -1,5 +1,32 @@
 /* See LICENSE for licence details. */
 /* yaft.c: include main function */
+#define _GNU_SOURCE
+#include <errno.h>
+#include <libevdev/libevdev.h>
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <locale.h>
+#include <limits.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <sys/select.h>
+#include <sys/wait.h>
+#include <termios.h>
+#include <time.h>
+#include <unistd.h>
+#include <wchar.h>
+
+
+#include "glyph.h"
+#include "color.h"
 #include "yaft.h"
 #include "conf.h"
 #include "util.h"
@@ -9,6 +36,8 @@
 #include "ctrlseq/csi.h"
 #include "ctrlseq/osc.h"
 #include "ctrlseq/dcs.h"
+#include "mouse/events.h"
+#include "mouse/mouse.h"
 #include "parse.h"
 
 void sig_handler(int signo)
@@ -195,30 +224,37 @@ int main(int argc, char *const argv[])
 
 	/* main loop */
 	while (child_alive) {
+		bool check_refresh = false;
 		if (need_redraw) {
 			need_redraw = false;
 			cmap_update(fb.fd, fb.cmap); /* after VT switching, need to restore cmap (in 8bpp mode) */
 			redraw(&term);
-			refresh(&fb, &term);
+			check_refresh = true;
 		}
 
 		if (check_fds(&fds, &tv, STDIN_FILENO, term.fd) == -1)
 			continue;
 
 		if (FD_ISSET(STDIN_FILENO, &fds)) {
-			if ((size = read(STDIN_FILENO, buf, BUFSIZE)) > 0)
-				ewrite(term.fd, buf, size);
+			if ((size = read(STDIN_FILENO, buf, BUFSIZE)) > 0) {
+				parse(&term, buf, size, INPUT);
+				check_refresh = check_refresh || !(LAZY_DRAW && size == BUFSIZE);
+			}
 		}
 		if (FD_ISSET(term.fd, &fds)) {
 			if ((size = read(term.fd, buf, BUFSIZE)) > 0) {
 				if (VERBOSE)
 					ewrite(STDOUT_FILENO, buf, size);
-				parse(&term, buf, size);
-				if (LAZY_DRAW && size == BUFSIZE)
-					continue; /* maybe more data arrives soon */
-				refresh(&fb, &term);
+				parse(&term, buf, size, OUTPUT);
+				check_refresh = check_refresh || !(LAZY_DRAW && size == BUFSIZE);
 			}
 		}
+		
+		if(mouse_dowork(&term))
+			check_refresh = true;
+
+		if(check_refresh)
+			refresh(&fb, &term);
 	}
 
 	/* normal exit */
