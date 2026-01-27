@@ -16,6 +16,7 @@ enum io_direction
 };
 
 enum misc {
+	PIXEL_SIZE_INFO    = 14,               /* csi t esc code to get pixel info */
 	CTRL_MOD           = 5,                /* csi ctrl key mod */
 	BUFSIZE            = 1024,             /* read, esc, various buffer size */
 	BITS_PER_BYTE      = 8,                /* bits per byte */
