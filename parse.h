@@ -52,6 +52,7 @@ bool (*csi_func[ESC_CHARS])(struct terminal_t *term, struct parm_t * parm, enum 
 	['m'] = set_attr,
 	['n'] = status_report,
 	['r'] = set_margin,
+	['t'] = get_pixels,
 	/* XXX: not implemented because these sequences conflict DECSLRM/DECSHTS
 	['s'] = sco_save_state,
 	['u'] = sco_restore_state,

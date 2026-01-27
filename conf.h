@@ -23,7 +23,7 @@ enum {
 };
 
 #define MAX_EVT_DEVS (20)
-#define HIST_LINES (2000)
+#define HIST_LINES (5000)
 
 /* TERM value */
 const char *term_name = "yaft-256color";

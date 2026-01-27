@@ -571,6 +571,23 @@ bool set_margin(struct terminal_t *term, struct parm_t *parm, enum io_direction 
 	return false;
 }
 
+bool get_pixels(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
+{
+	char resp[100] = {0};
+	if(io_dir != OUTPUT)
+	{
+		return false;
+	}
+	if(parm->argc != 1 || dec2num(parm->argv[0]) != 14)
+	{
+		return false;
+	}
+	snprintf(resp, 100, "\033[%d;%dt", term->height, term->width);
+	ewrite(term->fd, resp, strnlen(resp, 100));
+	return false;
+
+}
+
 bool clear_tabstop(struct terminal_t *term, struct parm_t *parm, enum io_direction io_dir)
 {
 	if(io_dir != OUTPUT)
